@@ -134,6 +134,7 @@ import DebugCanvas, {
 } from "./components/DebugCanvas";
 import { AIComponents } from "./components/AI";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
+import { PastBoardsModal } from "./components/PastBoardsModal";
 
 import "./index.scss";
 
@@ -739,6 +740,46 @@ const ExcalidrawWrapper = () => {
     [setShareDialogState],
   );
 
+  const LOCAL_STORAGE_PAST_BOARDS_KEY = "excalidraw-past-boards";
+
+  const handleSaveToMyBoards = () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const appState = excalidrawAPI.getAppState();
+
+    if (elements.length === 0) {
+      excalidrawAPI.setToast({ message: "Cannot save an empty board.", duration: 3000 });
+      return;
+    }
+
+    const boardName = `Board ${new Date().toLocaleString()}`;
+    const newBoard = {
+      id: crypto.randomUUID(), // Browser standard for UUIDs
+      name: boardName,
+      elements: elements,
+      // Save a subset of appState, e.g., viewBackgroundColor, currentItem* properties
+      // For now, let's keep it simple and save the most relevant ones. Be mindful of size.
+      appState: {
+        viewBackgroundColor: appState.viewBackgroundColor,
+        gridSize: appState.gridSize,
+        // Add other appState properties you want to restore
+      },
+    };
+
+    try {
+      const storedBoardsRaw = localStorage.getItem(LOCAL_STORAGE_PAST_BOARDS_KEY);
+      const storedBoards = storedBoardsRaw ? JSON.parse(storedBoardsRaw) : [];
+      storedBoards.push(newBoard);
+      localStorage.setItem(LOCAL_STORAGE_PAST_BOARDS_KEY, JSON.stringify(storedBoards));
+      excalidrawAPI.setToast({ message: `Board '${boardName}' saved!`, duration: 3000 });
+    } catch (error) {
+      console.error("Error saving board to local storage:", error);
+      excalidrawAPI.setToast({ message: "Error saving board.", duration: 3000 });
+    }
+  };
+
   // browsers generally prevent infinite self-embedding, there are
   // cases where it still happens, and while we disallow self-embedding
   // by not whitelisting our own origin, this serves as an additional guard
@@ -878,6 +919,7 @@ const ExcalidrawWrapper = () => {
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
+          onSaveToMyBoards={handleSaveToMyBoards}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
@@ -919,8 +961,16 @@ const ExcalidrawWrapper = () => {
             setErrorMessage={setErrorMessage}
           />
         )}
-        {excalidrawAPI && !isCollabDisabled && (
+        <PastBoardsModal excalidrawAPI={excalidrawAPI} />
+        {!isCollabDisabled && excalidrawAPI && (
           <Collab excalidrawAPI={excalidrawAPI} />
+        )}
+        {isVisualDebuggerEnabled() && excalidrawAPI && (
+          <DebugCanvas
+            appState={excalidrawAPI.getAppState()}
+            scale={window.devicePixelRatio}
+            ref={debugCanvasRef}
+          />
         )}
 
         <ShareDialog
