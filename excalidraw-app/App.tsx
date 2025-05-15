@@ -75,6 +75,7 @@ import type { ResolvablePromise } from "@excalidraw/common/utils";
 import CustomStats from "./CustomStats";
 import {
   Provider,
+  atom,
   useAtom,
   useAtomValue,
   useAtomWithInitialValue,
@@ -129,10 +130,7 @@ import DebugCanvas, {
 } from "./components/DebugCanvas";
 import { AIComponents } from "./components/AI";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
-import {
-  PastSessionsModal,
-  pastSessionsModalAtom,
-} from "./components/PastSessionsModal";
+import { RecentSessionsSidebar } from "./components/RecentSessionsSidebar";
 
 import "./index.scss";
 
@@ -333,6 +331,9 @@ const initializeScene = async (opts: {
   return { scene: null, isExternalScene: false };
 };
 
+// Create a new Jotai atom for controlling the RecentSessionsSidebar visibility
+const recentSessionsSidebarOpenAtom = atom(false);
+
 const ExcalidrawWrapper = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const isCollabDisabled = isRunningInIframe();
@@ -366,12 +367,16 @@ const ExcalidrawWrapper = () => {
     useCallbackRefState<ExcalidrawImperativeAPI>();
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
-  const setPastSessionsModalOpen = useSetAtom(pastSessionsModalAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
   const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
     return isCollaborationLink(window.location.href);
   });
   const collabError = useAtomValue(collabErrorIndicatorAtom);
+
+  // Get the setter for the new atom
+  const setRecentSessionsSidebarOpen = useSetAtom(recentSessionsSidebarOpenAtom);
+  // Get the value of the new atom for conditional rendering
+  const isRecentSessionsSidebarOpen = useAtomValue(recentSessionsSidebarOpenAtom);
 
   const [, forceRefresh] = useState(false);
 
@@ -838,34 +843,28 @@ const ExcalidrawWrapper = () => {
         handleKeyboardGlobally={true}
         autoFocus={true}
         theme={editorTheme}
-        renderTopRightUI={(isMobile) => {
-          if (isMobile || !collabAPI || isCollabDisabled) {
+        renderTopRightUI={(isMobile, appState) => {
+          if (isMobile) {
             return null;
           }
+          // console.log("Current openSidebar state:", appState.openSidebar); // No longer primary mechanism
           return (
-            <div
-              className="top-right-ui"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-              }}
-            >
-              {collabError.message && <CollabError collabError={collabError} />}
-              <LiveCollaborationTrigger
-                isCollaborating={isCollaborating}
-                onSelect={() =>
-                  setShareDialogState({ isOpen: true, type: "share" })
-                }
-              />
+            <div className="top-right-ui" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              {collabAPI && !isCollabDisabled && collabError.message && <CollabError collabError={collabError} />}
+              {collabAPI && !isCollabDisabled && (
+                <LiveCollaborationTrigger
+                  isCollaborating={isCollaborating}
+                  onSelect={() =>
+                    setShareDialogState({ isOpen: true, type: "share" })
+                  }
+                />
+              )}
               <button
-                className="excalidraw-button"
-                onClick={() => setPastSessionsModalOpen(true)}
-                title="Recent Sessions"
-                style={{
-                  padding: "0.25rem 0.5rem",
-                  height: "2.6rem",
+                className="excalidraw-button excalidraw-button--icon"
+                onClick={() => {
+                  setRecentSessionsSidebarOpen(true); // Toggle our custom sidebar state
                 }}
+                title="Recent Sessions"
               >
                 {UndoIcon}
               </button>
@@ -927,7 +926,28 @@ const ExcalidrawWrapper = () => {
             setErrorMessage={setErrorMessage}
           />
         )}
-        <PastSessionsModal excalidrawAPI={excalidrawAPI} />
+        {/* Conditionally render RecentSessionsSidebar based on its atom state */}
+        {isRecentSessionsSidebarOpen && excalidrawAPI && (
+          <div 
+            style={{
+              position: "fixed", 
+              top: 0, 
+              right: 0,
+              width: "340px", // A bit wider to accommodate potential scrollbars better
+              height: "100%",
+              zIndex: 1000, // High z-index to be on top
+              backgroundColor: "var(--sidebar-bg-color, var(--color-surface-2))", // Use theme variable
+              boxShadow: "-2px 0 8px rgba(0,0,0,0.15)",
+              display: "flex", // To ensure children behave as expected
+              flexDirection: "column" // To ensure children behave as expected
+            }}
+          >
+            <RecentSessionsSidebar 
+              excalidrawAPI={excalidrawAPI}
+              onClose={() => setRecentSessionsSidebarOpen(false)} 
+            />
+          </div>
+        )}
         {!isCollabDisabled && excalidrawAPI && (
           <Collab excalidrawAPI={excalidrawAPI} />
         )}
