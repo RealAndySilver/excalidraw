@@ -52,7 +52,7 @@ import { isElementLink } from "@excalidraw/element";
 import { restore, restoreAppState } from "@excalidraw/excalidraw/data/restore";
 import { newElementWith } from "@excalidraw/element";
 import { isInitializedImageElement } from "@excalidraw/element";
-import clsx from "clsx";
+
 import { parseLibraryTokensFromUrl } from "@excalidraw/excalidraw/data/library";
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
@@ -71,6 +71,8 @@ import type {
 } from "@excalidraw/excalidraw/types";
 import type { ResolutionType } from "@excalidraw/common/utility-types";
 import type { ResolvablePromise } from "@excalidraw/common/utils";
+
+import EditableSceneName from "./components/EditableSceneName";
 
 import CustomStats from "./CustomStats";
 import {
@@ -342,6 +344,17 @@ const ExcalidrawWrapper = () => {
 
   const [langCode, setLangCode] = useAppLangCode();
 
+  // State for the scene name
+  const [currentSceneName, setCurrentSceneName] = useState<string | null>(
+    "Untitled",
+  );
+
+  // Helper to get current room ID from URL hash
+  const getCurrentRoomId = () => {
+    const roomMatch = window.location.hash.match(/^#room=([a-zA-Z0-9_-]+),/);
+    return roomMatch ? roomMatch[1] : null;
+  };
+
   // initial state
   // ---------------------------------------------------------------------------
 
@@ -374,9 +387,13 @@ const ExcalidrawWrapper = () => {
   const collabError = useAtomValue(collabErrorIndicatorAtom);
 
   // Get the setter for the new atom
-  const setRecentSessionsSidebarOpen = useSetAtom(recentSessionsSidebarOpenAtom);
+  const setRecentSessionsSidebarOpen = useSetAtom(
+    recentSessionsSidebarOpenAtom,
+  );
   // Get the value of the new atom for conditional rendering
-  const isRecentSessionsSidebarOpen = useAtomValue(recentSessionsSidebarOpenAtom);
+  const isRecentSessionsSidebarOpen = useAtomValue(
+    recentSessionsSidebarOpenAtom,
+  );
 
   const [, forceRefresh] = useState(false);
 
@@ -469,6 +486,8 @@ const ExcalidrawWrapper = () => {
 
     initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
       loadImages(data, /* isInitialLoad */ true);
+      // Initialize currentSceneName from loaded data
+      setCurrentSceneName(data.scene?.appState?.name || "Untitled");
       initialStatePromiseRef.current.promise.resolve(data.scene);
     });
 
@@ -492,6 +511,8 @@ const ExcalidrawWrapper = () => {
               ...restore(data.scene, null, null, { repairBindings: true }),
               captureUpdate: CaptureUpdateAction.IMMEDIATELY,
             });
+            // Update scene name from hash change loaded data
+            setCurrentSceneName(data.scene?.appState?.name || "Untitled");
           }
         });
       }
@@ -630,6 +651,9 @@ const ExcalidrawWrapper = () => {
       collabAPI.syncElements(elements);
     }
 
+    // Update currentSceneName from Excalidraw's appState
+    setCurrentSceneName(appState.name);
+
     // this check is redundant, but since this is a hot path, it's best
     // not to evaludate the nested expression every time
     if (!LocalData.isSavePaused()) {
@@ -730,6 +754,35 @@ const ExcalidrawWrapper = () => {
     );
   };
 
+  const handleUpdateSceneName = (newName: string) => {
+    if (excalidrawAPI) {
+      excalidrawAPI.updateScene({ appState: { name: newName } });
+
+      const roomId = getCurrentRoomId();
+      if (roomId) {
+        try {
+          const storedSessionsRaw = localStorage.getItem(
+            "excalidraw-past-sessions",
+          );
+          if (storedSessionsRaw) {
+            let sessions = JSON.parse(storedSessionsRaw) as { id: string, name: string, [key: string]: any }[];
+            const sessionIndex = sessions.findIndex(s => s.id === roomId);
+            if (sessionIndex !== -1) {
+              sessions[sessionIndex] = { ...sessions[sessionIndex], name: newName };
+              localStorage.setItem(
+                "excalidraw-past-sessions",
+                JSON.stringify(sessions),
+              );
+            }
+          }
+        } catch (error) {
+          console.error("Error updating session name in localStorage:", error);
+        }
+      }
+      // No need to setCurrentSceneName here, it will be updated via onChange
+    }
+  };
+
   const isOffline = useAtomValue(isOfflineAtom);
 
   const onCollabDialogOpen = useCallback(
@@ -793,12 +846,17 @@ const ExcalidrawWrapper = () => {
   };
 
   return (
-    <div
-      style={{ height: "100%" }}
-      className={clsx("excalidraw-app", {
-        "is-collaborating": isCollaborating,
-      })}
-    >
+    <div style={{ height: "100%", position: "relative" }}>
+      <EditableSceneName
+        sceneName={currentSceneName}
+        onNameChange={handleUpdateSceneName}
+        style={{
+          position: "absolute",
+          top: "12px",
+          left: "60px",
+          zIndex: 10,
+        }}
+      />
       <Excalidraw
         excalidrawAPI={excalidrawRefCallback}
         onChange={onChange}
@@ -847,10 +905,14 @@ const ExcalidrawWrapper = () => {
           if (isMobile) {
             return null;
           }
-          // console.log("Current openSidebar state:", appState.openSidebar); // No longer primary mechanism
           return (
-            <div className="top-right-ui" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              {collabAPI && !isCollabDisabled && collabError.message && <CollabError collabError={collabError} />}
+            <div
+              className="top-right-ui"
+              style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+            >
+              {collabAPI && !isCollabDisabled && collabError.message && (
+                <CollabError collabError={collabError} />
+              )}
               {collabAPI && !isCollabDisabled && (
                 <LiveCollaborationTrigger
                   isCollaborating={isCollaborating}
@@ -862,7 +924,7 @@ const ExcalidrawWrapper = () => {
               <button
                 className="excalidraw-button excalidraw-button--icon"
                 onClick={() => {
-                  setRecentSessionsSidebarOpen(true); // Toggle our custom sidebar state
+                  setRecentSessionsSidebarOpen(true);
                 }}
                 title="Recent Sessions"
               >
@@ -926,25 +988,25 @@ const ExcalidrawWrapper = () => {
             setErrorMessage={setErrorMessage}
           />
         )}
-        {/* Conditionally render RecentSessionsSidebar based on its atom state */}
         {isRecentSessionsSidebarOpen && excalidrawAPI && (
-          <div 
+          <div
             style={{
-              position: "fixed", 
-              top: 0, 
+              position: "fixed",
+              top: 0,
               right: 0,
-              width: "340px", // A bit wider to accommodate potential scrollbars better
+              width: "340px",
               height: "100%",
-              zIndex: 1000, // High z-index to be on top
-              backgroundColor: "var(--sidebar-bg-color, var(--color-surface-2))", // Use theme variable
+              zIndex: 1000,
+              backgroundColor:
+                "var(--sidebar-bg-color, var(--color-surface-2))",
               boxShadow: "-2px 0 8px rgba(0,0,0,0.15)",
-              display: "flex", // To ensure children behave as expected
-              flexDirection: "column" // To ensure children behave as expected
+              display: "flex",
+              flexDirection: "column",
             }}
           >
-            <RecentSessionsSidebar 
+            <RecentSessionsSidebar
               excalidrawAPI={excalidrawAPI}
-              onClose={() => setRecentSessionsSidebarOpen(false)} 
+              onClose={() => setRecentSessionsSidebarOpen(false)}
             />
           </div>
         )}

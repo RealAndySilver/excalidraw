@@ -1,5 +1,4 @@
 import { MainMenu } from "@excalidraw/excalidraw";
-import { helpIcon } from "@excalidraw/excalidraw/components/icons";
 import React from "react";
 
 import type { Theme } from "@excalidraw/element/types";
@@ -11,7 +10,6 @@ export const AppMainMenu: React.FC<{
   theme: Theme | "system";
   setTheme: (theme: Theme | "system") => void;
   refresh: () => void;
-  // Removed onSaveToMyBoards, firebaseUser, onSignIn, onSignOut props
 }> = React.memo((props) => {
   const {
     onCollabDialogOpen,
@@ -34,29 +32,16 @@ export const AppMainMenu: React.FC<{
           onSelect={() => onCollabDialogOpen()}
         />
       )}
-
-      {/* "Recent Sessions" item removed by the assistant */}
-
+      <MainMenu.DefaultItems.Help />
       <MainMenu.DefaultItems.ClearCanvas />
       <MainMenu.Separator />
       <MainMenu.DefaultItems.ToggleTheme
         theme={theme}
-        onSelect={setTheme}
-        allowSystemTheme
+        onSelect={(newTheme) => setTheme(newTheme)}
+        allowSystemTheme={true}
       />
-      <MainMenu.Item
-        icon={helpIcon}
-        onSelect={() => {
-          window.open(
-            "https://howto.excalidraw.com/?utm_source=excalidraw&utm_medium=app",
-            "_blank",
-          );
-        }}
-      >
-        Help
-      </MainMenu.Item>
-      <MainMenu.DefaultItems.Socials />
       <MainMenu.Separator />
+      <MainMenu.DefaultItems.Socials />
       <MainMenu.ItemCustom>
         <div
           style={{
@@ -72,7 +57,7 @@ export const AppMainMenu: React.FC<{
               border: "none",
               padding: 0,
               font: "inherit",
-              color: "var(--text-link-color, #007bff)", // Standard link color, can be adjusted
+              color: "var(--text-link-color, #007bff)",
               cursor: "pointer",
               textDecoration: "underline",
             }}
