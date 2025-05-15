@@ -115,6 +115,18 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
     });
   };
 
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    const { name, value } = e.target;
+    setEditFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSessionId(null);
+    setEditFormData({ name: "", description: "" }); // Reset form data
+  };
+
   const handleSaveEdit = () => {
     if (!editingSessionId) {
       return;
@@ -180,6 +192,9 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
                   <input
                     type="text"
                     id={`session-name-${session.id}`}
+                    name="name"
+                    value={editFormData.name}
+                    onChange={handleInputChange}
                     style={{
                       width: "100%",
                       padding: "0.4em",
@@ -202,6 +217,8 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
                   <textarea
                     id={`session-description-${session.id}`}
                     name="description"
+                    value={editFormData.description}
+                    onChange={handleInputChange}
                     style={{
                       width: "100%",
                       padding: "0.4em",
@@ -220,6 +237,12 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
                     }}
                   >
                     Save
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    style={{ padding: "0.5em 1em", background: "transparent" }}
+                  >
+                    Cancel
                   </button>
                 </div>
               </div>
