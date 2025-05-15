@@ -29,6 +29,8 @@ import { withBatchedUpdates } from "@excalidraw/excalidraw/reactUtils";
 import throttle from "lodash.throttle";
 import { PureComponent } from "react";
 
+import { nanoid } from "nanoid";
+
 import type {
   ReconciledExcalidrawElement,
   RemoteExcalidrawElement,
@@ -124,6 +126,17 @@ export interface CollabAPI {
 
 interface CollabProps {
   excalidrawAPI: ExcalidrawImperativeAPI;
+}
+
+const LOCAL_STORAGE_KEY_PAST_SESSIONS = "excalidraw-past-sessions";
+const MAX_PAST_SESSIONS = 20;
+
+interface PastSessionData {
+  id: string;
+  name: string;
+  url: string;
+  createdAt: number;
+  description?: string;
 }
 
 class Collab extends PureComponent<CollabProps, CollabState> {
@@ -463,6 +476,55 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   private fallbackInitializationHandler: null | (() => any) = null;
 
+  private saveSessionToHistory = (sessionUrl: string) => {
+    try {
+      const now = Date.now();
+      const storedSessionsRaw = localStorage.getItem(
+        LOCAL_STORAGE_KEY_PAST_SESSIONS,
+      );
+      let pastSessions: PastSessionData[] = storedSessionsRaw
+        ? JSON.parse(storedSessionsRaw)
+        : [];
+      const existingSessionIndex = pastSessions.findIndex(
+        (session) => session.url === sessionUrl,
+      );
+
+      if (existingSessionIndex !== -1) {
+        pastSessions[existingSessionIndex].createdAt = now;
+        // Description of existing entry is not modified here; user edits via modal
+      } else {
+        let sessionName = `Session - ${new Date(now).toLocaleString()}`;
+        const currentDrawingName = this.excalidrawAPI?.getName();
+        if (
+          currentDrawingName &&
+          currentDrawingName.trim() !== "" &&
+          currentDrawingName.toLowerCase() !== "untitled"
+        ) {
+          sessionName = currentDrawingName;
+        }
+        const newSessionEntry: PastSessionData = {
+          id: nanoid(),
+          name: sessionName,
+          url: sessionUrl,
+          createdAt: now,
+          description: "", // Initialize with empty description
+        };
+        pastSessions.push(newSessionEntry);
+      }
+
+      pastSessions.sort((a, b) => b.createdAt - a.createdAt);
+      if (pastSessions.length > MAX_PAST_SESSIONS) {
+        pastSessions = pastSessions.slice(0, MAX_PAST_SESSIONS);
+      }
+      localStorage.setItem(
+        LOCAL_STORAGE_KEY_PAST_SESSIONS,
+        JSON.stringify(pastSessions),
+      );
+    } catch (error) {
+      console.error("Error saving session to history:", error);
+    }
+  };
+
   startCollaboration = async (
     existingRoomLinkData: null | { roomId: string; roomKey: string },
   ) => {
@@ -479,19 +541,19 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
     let roomId;
     let roomKey;
+    let currentRoomURL: string;
 
     if (existingRoomLinkData) {
       ({ roomId, roomKey } = existingRoomLinkData);
+      currentRoomURL = getCollaborationLink({ roomId, roomKey });
     } else {
       ({ roomId, roomKey } = await generateCollaborationLinkData());
-      window.history.pushState(
-        {},
-        APP_NAME,
-        getCollaborationLink({ roomId, roomKey }),
-      );
+      currentRoomURL = getCollaborationLink({ roomId, roomKey });
+      window.history.pushState({}, APP_NAME, currentRoomURL);
     }
 
-    // TODO: `ImportedDataState` type here seems abused
+    this.saveSessionToHistory(currentRoomURL);
+
     const scenePromise = resolvablePromise<
       | (ImportedDataState & { elements: readonly OrderedExcalidrawElement[] })
       | null
@@ -537,10 +599,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
         }
         return element;
       });
-      // remove deleted elements from elements array to ensure we don't
-      // expose potentially sensitive user data in case user manually deletes
-      // existing elements (or clears scene), which would otherwise be persisted
-      // to database even if deleted before creating the room.
       this.excalidrawAPI.updateScene({
         elements,
         captureUpdate: CaptureUpdateAction.NEVER,
@@ -549,14 +607,11 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       this.saveCollabRoomToFirebase(getSyncableElements(elements));
     }
 
-    // fallback in case you're not alone in the room but still don't receive
-    // initial SCENE_INIT message
     this.socketInitializationTimer = window.setTimeout(
       fallbackInitializationHandler,
       INITIAL_SCENE_UPDATE_TIMEOUT,
     );
 
-    // All socket listeners are moving to Portal
     this.portal.socket.on(
       "client-broadcast",
       async (encryptedData: ArrayBuffer, iv: Uint8Array) => {
@@ -580,7 +635,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               const reconciledElements =
                 this._reconcileElements(remoteElements);
               this.handleRemoteSceneUpdate(reconciledElements);
-              // noop if already resolved via init from firebase
               scenePromise.resolve({
                 elements: reconciledElements,
                 scrollToContent: true,
@@ -598,9 +652,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               decryptedData.payload;
 
             const socketId: SocketUpdateDataSource["MOUSE_LOCATION"]["payload"]["socketId"] =
-              decryptedData.payload.socketId ||
-              // @ts-ignore legacy, see #2094 (#2097)
-              decryptedData.payload.socketID;
+              decryptedData.payload.socketId;
 
             this.updateCollaborator(socketId, {
               pointer,
@@ -617,8 +669,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
             const appState = this.excalidrawAPI.getAppState();
 
-            // we're not following the user
-            // (shouldn't happen, but could be late message or bug upstream)
             if (appState.userToFollow?.socketId !== socketId) {
               console.warn(
                 `receiving remote client's (from ${socketId}) viewport bounds even though we're not subscribed to it!`,
@@ -626,7 +676,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               return;
             }
 
-            // cross-follow case, ignore updates in this case
             if (
               appState.userToFollow &&
               appState.followedBy.has(appState.userToFollow.socketId)
@@ -686,7 +735,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
     this.initializeIdleDetector();
 
-    this.setActiveRoomLink(window.location.href);
+    this.setActiveRoomLink(currentRoomURL);
 
     return scenePromise;
   };
@@ -727,7 +776,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           };
         }
       } catch (error: any) {
-        // log the error and move on. other peers will sync us the scene.
         console.error(error);
       } finally {
         this.portal.socketInitialized = true;
@@ -750,10 +798,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       appState,
     );
 
-    // Avoid broadcasting to the rest of the collaborators the scene
-    // we just received!
-    // Note: this needs to be set before updating the scene as it
-    // synchronously calls render.
     this.setLastBroadcastedOrReceivedSceneVersion(
       getSceneVersion(reconciledElements),
     );

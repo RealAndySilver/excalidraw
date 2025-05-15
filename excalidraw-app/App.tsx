@@ -52,10 +52,7 @@ import { restore, restoreAppState } from "@excalidraw/excalidraw/data/restore";
 import { newElementWith } from "@excalidraw/element";
 import { isInitializedImageElement } from "@excalidraw/element";
 import clsx from "clsx";
-import {
-  parseLibraryTokensFromUrl,
-  useHandleLibrary,
-} from "@excalidraw/excalidraw/data/library";
+import { parseLibraryTokensFromUrl } from "@excalidraw/excalidraw/data/library";
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
@@ -116,11 +113,7 @@ import {
 } from "./data/localStorage";
 
 import { loadFilesFromFirebase } from "./data/firebase";
-import {
-  LibraryIndexedDBAdapter,
-  LibraryLocalStorageMigrationAdapter,
-  LocalData,
-} from "./data/LocalData";
+import { LibraryIndexedDBAdapter, LocalData } from "./data/LocalData";
 import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
@@ -134,7 +127,7 @@ import DebugCanvas, {
 } from "./components/DebugCanvas";
 import { AIComponents } from "./components/AI";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
-import { PastBoardsModal } from "./components/PastBoardsModal";
+import { PastSessionsModal } from "./components/PastSessionsModal";
 
 import "./index.scss";
 
@@ -373,13 +366,6 @@ const ExcalidrawWrapper = () => {
     return isCollaborationLink(window.location.href);
   });
   const collabError = useAtomValue(collabErrorIndicatorAtom);
-
-  useHandleLibrary({
-    excalidrawAPI,
-    adapter: LibraryIndexedDBAdapter,
-    // TODO maybe remove this in several months (shipped: 24-03-11)
-    migrationAdapter: LibraryLocalStorageMigrationAdapter,
-  });
 
   const [, forceRefresh] = useState(false);
 
@@ -740,49 +726,6 @@ const ExcalidrawWrapper = () => {
     [setShareDialogState],
   );
 
-  const LOCAL_STORAGE_PAST_BOARDS_KEY = "excalidraw-past-boards";
-
-  const handleSaveToMyBoards = () => {
-    if (!excalidrawAPI) {
-      return;
-    }
-    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-    const appState = excalidrawAPI.getAppState();
-
-    if (elements.length === 0) {
-      excalidrawAPI.setToast({ message: "Cannot save an empty board.", duration: 3000 });
-      return;
-    }
-
-    const boardName = `Board ${new Date().toLocaleString()}`;
-    const newBoard = {
-      id: crypto.randomUUID(), // Browser standard for UUIDs
-      name: boardName,
-      elements: elements,
-      // Save a subset of appState, e.g., viewBackgroundColor, currentItem* properties
-      // For now, let's keep it simple and save the most relevant ones. Be mindful of size.
-      appState: {
-        viewBackgroundColor: appState.viewBackgroundColor,
-        gridSize: appState.gridSize,
-        // Add other appState properties you want to restore
-      },
-    };
-
-    try {
-      const storedBoardsRaw = localStorage.getItem(LOCAL_STORAGE_PAST_BOARDS_KEY);
-      const storedBoards = storedBoardsRaw ? JSON.parse(storedBoardsRaw) : [];
-      storedBoards.push(newBoard);
-      localStorage.setItem(LOCAL_STORAGE_PAST_BOARDS_KEY, JSON.stringify(storedBoards));
-      excalidrawAPI.setToast({ message: `Board '${boardName}' saved!`, duration: 3000 });
-    } catch (error) {
-      console.error("Error saving board to local storage:", error);
-      excalidrawAPI.setToast({ message: "Error saving board.", duration: 3000 });
-    }
-  };
-
-  // browsers generally prevent infinite self-embedding, there are
-  // cases where it still happens, and while we disallow self-embedding
-  // by not whitelisting our own origin, this serves as an additional guard
   if (isSelfEmbedding) {
     return (
       <div
@@ -919,7 +862,6 @@ const ExcalidrawWrapper = () => {
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
-          onSaveToMyBoards={handleSaveToMyBoards}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
@@ -961,7 +903,7 @@ const ExcalidrawWrapper = () => {
             setErrorMessage={setErrorMessage}
           />
         )}
-        <PastBoardsModal excalidrawAPI={excalidrawAPI} />
+        <PastSessionsModal excalidrawAPI={excalidrawAPI} />
         {!isCollabDisabled && excalidrawAPI && (
           <Collab excalidrawAPI={excalidrawAPI} />
         )}

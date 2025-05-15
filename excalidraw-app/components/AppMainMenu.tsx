@@ -1,22 +1,15 @@
+import { MainMenu } from "@excalidraw/excalidraw";
 import {
-  loginIcon,
-  ExcalLogo,
-  eyeIcon,
+  helpIcon,
+  UndoIcon, // Will be used for "Recent Sessions"
 } from "@excalidraw/excalidraw/components/icons";
-import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
-
-import { isDevEnv } from "@excalidraw/common";
 
 import type { Theme } from "@excalidraw/element/types";
 
 import { useSetAtom } from "../app-jotai";
 
-import { LanguageList } from "../app-language/LanguageList";
-import { isExcalidrawPlusSignedUser } from "../app_constants";
-
-import { saveDebugState } from "./DebugCanvas";
-import { pastBoardsModalAtom } from "./PastBoardsModal";
+import { pastSessionsModalAtom } from "./PastSessionsModal";
 
 export const AppMainMenu: React.FC<{
   onCollabDialogOpen: () => any;
@@ -25,79 +18,86 @@ export const AppMainMenu: React.FC<{
   theme: Theme | "system";
   setTheme: (theme: Theme | "system") => void;
   refresh: () => void;
-  onSaveToMyBoards: () => void;
+  // Removed onSaveToMyBoards, firebaseUser, onSignIn, onSignOut props
 }> = React.memo((props) => {
-  const setPastBoardsModalOpen = useSetAtom(pastBoardsModalAtom);
+  const {
+    onCollabDialogOpen,
+    isCollaborating,
+    isCollabEnabled,
+    theme,
+    setTheme,
+    refresh,
+  } = props;
+
+  // Updated to use pastSessionsModalAtom
+  const setPastSessionsModalOpen = useSetAtom(pastSessionsModalAtom);
 
   return (
     <MainMenu>
       <MainMenu.DefaultItems.LoadScene />
       <MainMenu.DefaultItems.SaveToActiveFile />
-      <MainMenu.Item onClick={props.onSaveToMyBoards}>
-        Save to My Boards
-      </MainMenu.Item>
       <MainMenu.DefaultItems.Export />
       <MainMenu.DefaultItems.SaveAsImage />
-      <MainMenu.Item onClick={() => setPastBoardsModalOpen(true)}>
-        Past Boards
-      </MainMenu.Item>
-      {props.isCollabEnabled && (
+      {isCollabEnabled && (
         <MainMenu.DefaultItems.LiveCollaborationTrigger
-          isCollaborating={props.isCollaborating}
-          onSelect={() => props.onCollabDialogOpen()}
+          isCollaborating={isCollaborating}
+          onSelect={() => onCollabDialogOpen()}
         />
       )}
-      <MainMenu.DefaultItems.CommandPalette className="highlighted" />
-      <MainMenu.DefaultItems.SearchMenu />
-      <MainMenu.DefaultItems.Help />
+
+      {/* Changed to "Recent Sessions" */}
+      <MainMenu.Item
+        icon={UndoIcon} // Still using UndoIcon as placeholder, can be changed
+        onSelect={() => setPastSessionsModalOpen(true)}
+      >
+        Recent Sessions
+      </MainMenu.Item>
       <MainMenu.DefaultItems.ClearCanvas />
       <MainMenu.Separator />
-      <MainMenu.ItemLink
-        icon={ExcalLogo}
-        href={`${
-          import.meta.env.VITE_APP_PLUS_LP
-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=hamburger`}
-        className=""
+      <MainMenu.DefaultItems.ToggleTheme
+        theme={theme}
+        onSelect={setTheme}
+        allowSystemTheme
+      />
+      <MainMenu.Item
+        icon={helpIcon}
+        onSelect={() => {
+          window.open(
+            "https://howto.excalidraw.com/?utm_source=excalidraw&utm_medium=app",
+            "_blank",
+          );
+        }}
       >
-        Excalidraw+
-      </MainMenu.ItemLink>
+        Help
+      </MainMenu.Item>
       <MainMenu.DefaultItems.Socials />
-      <MainMenu.ItemLink
-        icon={loginIcon}
-        href={`${import.meta.env.VITE_APP_PLUS_APP}${
-          isExcalidrawPlusSignedUser ? "" : "/sign-up"
-        }?utm_source=signin&utm_medium=app&utm_content=hamburger`}
-        className="highlighted"
-      >
-        {isExcalidrawPlusSignedUser ? "Sign in" : "Sign up"}
-      </MainMenu.ItemLink>
-      {isDevEnv() && (
-        <MainMenu.Item
-          icon={eyeIcon}
-          onClick={() => {
-            if (window.visualDebug) {
-              delete window.visualDebug;
-              saveDebugState({ enabled: false });
-            } else {
-              window.visualDebug = { data: [] };
-              saveDebugState({ enabled: true });
-            }
-            props?.refresh();
+      <MainMenu.Separator />
+      <MainMenu.ItemCustom>
+        <div
+          style={{
+            fontSize: ".75rem",
+            padding: "0.5rem 0.75rem",
+            fontStyle: "italic",
           }}
         >
-          Visual Debug
-        </MainMenu.Item>
-      )}
-      <MainMenu.Separator />
-      <MainMenu.DefaultItems.ToggleTheme
-        allowSystemTheme
-        theme={props.theme}
-        onSelect={props.setTheme}
-      />
-      <MainMenu.ItemCustom>
-        <LanguageList style={{ width: "100%" }} />
+          <button
+            onClick={refresh}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              color: "var(--text-link-color, #007bff)", // Standard link color, can be adjusted
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            Force refresh
+          </button>
+        </div>
       </MainMenu.ItemCustom>
-      <MainMenu.DefaultItems.ChangeCanvasBackground />
     </MainMenu>
   );
 });
+
+AppMainMenu.displayName = "AppMainMenu";
