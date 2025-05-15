@@ -46,6 +46,7 @@ import {
   exportToPlus,
   share,
   youtubeIcon,
+  UndoIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
 import { restore, restoreAppState } from "@excalidraw/excalidraw/data/restore";
@@ -78,6 +79,7 @@ import {
   useAtomValue,
   useAtomWithInitialValue,
   appJotaiStore,
+  useSetAtom,
 } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -127,7 +129,10 @@ import DebugCanvas, {
 } from "./components/DebugCanvas";
 import { AIComponents } from "./components/AI";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
-import { PastSessionsModal } from "./components/PastSessionsModal";
+import {
+  PastSessionsModal,
+  pastSessionsModalAtom,
+} from "./components/PastSessionsModal";
 
 import "./index.scss";
 
@@ -361,6 +366,7 @@ const ExcalidrawWrapper = () => {
     useCallbackRefState<ExcalidrawImperativeAPI>();
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
+  const setPastSessionsModalOpen = useSetAtom(pastSessionsModalAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
   const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
     return isCollaborationLink(window.location.href);
@@ -837,7 +843,14 @@ const ExcalidrawWrapper = () => {
             return null;
           }
           return (
-            <div className="top-right-ui">
+            <div
+              className="top-right-ui"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+              }}
+            >
               {collabError.message && <CollabError collabError={collabError} />}
               <LiveCollaborationTrigger
                 isCollaborating={isCollaborating}
@@ -845,6 +858,17 @@ const ExcalidrawWrapper = () => {
                   setShareDialogState({ isOpen: true, type: "share" })
                 }
               />
+              <button
+                className="excalidraw-button"
+                onClick={() => setPastSessionsModalOpen(true)}
+                title="Recent Sessions"
+                style={{
+                  padding: "0.25rem 0.5rem",
+                  height: "2.6rem",
+                }}
+              >
+                {UndoIcon}
+              </button>
             </div>
           );
         }}

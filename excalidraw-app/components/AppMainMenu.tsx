@@ -1,15 +1,8 @@
 import { MainMenu } from "@excalidraw/excalidraw";
-import {
-  helpIcon,
-  UndoIcon, // Will be used for "Recent Sessions"
-} from "@excalidraw/excalidraw/components/icons";
+import { helpIcon } from "@excalidraw/excalidraw/components/icons";
 import React from "react";
 
 import type { Theme } from "@excalidraw/element/types";
-
-import { useSetAtom } from "../app-jotai";
-
-import { pastSessionsModalAtom } from "./PastSessionsModal";
 
 export const AppMainMenu: React.FC<{
   onCollabDialogOpen: () => any;
@@ -29,9 +22,6 @@ export const AppMainMenu: React.FC<{
     refresh,
   } = props;
 
-  // Updated to use pastSessionsModalAtom
-  const setPastSessionsModalOpen = useSetAtom(pastSessionsModalAtom);
-
   return (
     <MainMenu>
       <MainMenu.DefaultItems.LoadScene />
@@ -45,13 +35,8 @@ export const AppMainMenu: React.FC<{
         />
       )}
 
-      {/* Changed to "Recent Sessions" */}
-      <MainMenu.Item
-        icon={UndoIcon} // Still using UndoIcon as placeholder, can be changed
-        onSelect={() => setPastSessionsModalOpen(true)}
-      >
-        Recent Sessions
-      </MainMenu.Item>
+      {/* "Recent Sessions" item removed by the assistant */}
+
       <MainMenu.DefaultItems.ClearCanvas />
       <MainMenu.Separator />
       <MainMenu.DefaultItems.ToggleTheme

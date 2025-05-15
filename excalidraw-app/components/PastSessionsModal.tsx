@@ -26,6 +26,7 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
   const [isOpen, setIsOpen] = useAtom(pastSessionsModalAtom);
   const [pastSessions, setPastSessions] = useState<PastSessionData[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState(""); // State for search term
 
   // State for editing
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -159,15 +160,30 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
     return null;
   }
 
+  // Filter sessions based on search term
+  const filteredSessions = pastSessions.filter((session) => {
+    if (!searchTerm.trim()) {
+      return true; // Show all if search term is empty
+    }
+    const term = searchTerm.toLowerCase();
+    const nameMatch = session.name.toLowerCase().includes(term);
+    const descriptionMatch =
+      session.description?.toLowerCase().includes(term) || false;
+
+    return nameMatch || descriptionMatch;
+  });
+
   let content;
   if (error) {
     content = <p style={{ color: "red" }}>Error: {error}</p>;
   } else if (pastSessions.length === 0) {
     content = <p>No recent collaboration sessions found in your history.</p>;
+  } else if (filteredSessions.length === 0) {
+    content = <p>No sessions match your search for "{searchTerm}".</p>; // Message for no search results
   } else {
     content = (
       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-        {pastSessions.map((session) => (
+        {filteredSessions.map((session) => (
           <li
             key={session.id}
             style={{
@@ -384,6 +400,22 @@ export const PastSessionsModal: React.FC<PastSessionsModalProps> = () => {
       title="Recent Collaboration Sessions"
       className="PastSessionsModal" // Renamed class
     >
+      <div style={{ padding: "0 1rem 1rem 1rem" }}>
+        <input
+          type="text"
+          placeholder="Search by name or description..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "0.5em",
+            marginBottom: "1rem",
+            boxSizing: "border-box",
+            border: "1px solid var(--input-border-color, #ccc)",
+            borderRadius: "var(--border-radius-md, 4px)",
+          }}
+        />
+      </div>
       <div
         style={{
           minWidth: "500px", // Increased minWidth for better display of URL
