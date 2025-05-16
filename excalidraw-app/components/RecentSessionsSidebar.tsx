@@ -33,9 +33,13 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     name: string;
     description: string;
   }>({ name: "", description: "" });
+  const [rejoiningSessionId, setRejoiningSessionId] = useState<string | null>(
+    null,
+  ); // State for loading status
 
   const inputNameRef = useRef<HTMLInputElement>(null);
   // const textareaDescriptionRef = useRef<HTMLTextAreaElement>(null); // If specific focus needed for description
+  const sidebarRef = useRef<HTMLDivElement>(null); // Ref for the main sidebar div
 
   const loadSessionsFromLocalStorage = useCallback(() => {
     try {
@@ -82,14 +86,102 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     }
   }, [editingSessionId]);
 
+  const handleSaveEdit = useCallback(
+    (isAutoSave = false) => {
+      if (!editingSessionId) {
+        return;
+      }
+      try {
+        const sessionToUpdate = pastSessions.find(
+          (s) => s.id === editingSessionId,
+        );
+        if (!sessionToUpdate) {
+          return;
+        }
+
+        const trimmedName = editFormData.name.trim();
+        const trimmedDescription = editFormData.description.trim();
+
+        if (
+          trimmedName === sessionToUpdate.name &&
+          trimmedDescription === (sessionToUpdate.description || "")
+        ) {
+          if (!isAutoSave) {
+            setEditingSessionId(null);
+          }
+          return;
+        }
+
+        const updatedSessions = pastSessions.map((session) =>
+          session.id === editingSessionId
+            ? {
+                ...session,
+                name: trimmedName,
+                description: trimmedDescription,
+              }
+            : session,
+        );
+        localStorage.setItem(
+          LOCAL_STORAGE_KEY_PAST_SESSIONS,
+          JSON.stringify(updatedSessions),
+        );
+        setPastSessions(updatedSessions);
+        if (!isAutoSave) {
+          setEditingSessionId(null);
+        }
+        setError(null);
+      } catch (e) {
+        setError("Failed to save changes.");
+      }
+    },
+    [editingSessionId, pastSessions, editFormData],
+  );
+
+  // Effect to handle clicks outside the sidebar - MOVED HERE and handleSaveEdit is now useCallback
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        sidebarRef.current &&
+        !sidebarRef.current.contains(event.target as Node)
+      ) {
+        if (editingSessionId) {
+          // Ensure handleSaveEdit is called correctly if it's defined and memoized
+          // For now, assuming it's available in scope and correctly memoized if needed elsewhere
+          handleSaveEdit();
+        }
+        onClose();
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [onClose, editingSessionId, handleSaveEdit]); // Re-added handleSaveEdit as it was in the previous accepted version
+
   const handleRejoinSession = (session: PastSessionData) => {
+    if (rejoiningSessionId) {
+      return;
+    } // Prevent re-click if already rejoining
+    setRejoiningSessionId(session.id);
+
     if (!session.url) {
       setError("Session URL is invalid.");
+      setRejoiningSessionId(null); // Reset on error
       return;
     }
     if (onSessionSelect) {
       onSessionSelect(session);
+      // Optimistically reset the rejoining state after a short delay.
+      // If navigation occurs, this component instance will be destroyed anyway.
+      // If navigation fails silently in App.tsx, this ensures the button re-enables.
+      setTimeout(() => {
+        // Check if component is still mounted, or if the ID is still the same, to be safer
+        // For simplicity now, just reset. A more complex check could be added if needed.
+        setRejoiningSessionId(null);
+      }, 1500); // 1.5 seconds, adjust as needed
     } else {
+      // Fallback logic (direct navigation)
       try {
         const url = new URL(session.url);
         window.location.hash = url.hash;
@@ -100,6 +192,7 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
           e,
         );
         setError("Invalid session URL format (fallback).");
+        setRejoiningSessionId(null); // Reset on error
       }
     }
   };
@@ -112,7 +205,8 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
         JSON.stringify(updatedSessions),
       );
       setPastSessions(updatedSessions);
-      if (editingSessionId === sessionId) { // If deleting the item currently being edited
+      if (editingSessionId === sessionId) {
+        // If deleting the item currently being edited
         setEditingSessionId(null);
         setEditFormData({ name: "", description: "" });
       }
@@ -160,49 +254,6 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     // For now, just exiting edit mode. If re-clicked, handleStartEdit re-populates.
     // Let's clear it to prevent stale data if nothing else is clicked.
     setEditFormData({ name: "", description: "" });
-  };
-
-  const handleSaveEdit = (isAutoSave = false) => {
-    if (!editingSessionId) {
-      return;
-    }
-    try {
-      const sessionToUpdate = pastSessions.find(s => s.id === editingSessionId);
-      if (!sessionToUpdate) return;
-
-      // Only update if there's a change
-      const trimmedName = editFormData.name.trim();
-      const trimmedDescription = editFormData.description.trim();
-
-      if (trimmedName === sessionToUpdate.name && (trimmedDescription === (sessionToUpdate.description || ""))) {
-        if (!isAutoSave) { // Only clear editing session ID if it's not an auto-save before starting new edit
-           setEditingSessionId(null);
-        }
-        return;
-      }
-      
-      const updatedSessions = pastSessions.map((session) =>
-        session.id === editingSessionId
-          ? {
-              ...session,
-              name: trimmedName,
-              description: trimmedDescription,
-            }
-          : session,
-      );
-      localStorage.setItem(
-        LOCAL_STORAGE_KEY_PAST_SESSIONS,
-        JSON.stringify(updatedSessions),
-      );
-      setPastSessions(updatedSessions);
-      if (!isAutoSave) {
-        setEditingSessionId(null);
-      }
-      // Don't clear editFormData here, it holds the saved state.
-      setError(null);
-    } catch (e) {
-      setError("Failed to save changes.");
-    }
   };
 
   const handleEditKeyDown = (
@@ -269,12 +320,17 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
             }}
           >
             {editingSessionId === session.id ? (
-              <div className="session-edit-form" onBlur={(e) => {
-                // If focus is moving to an element outside this form, then save.
-                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                  handleSaveEdit();
-                }
-              }}>
+              <div
+                className="session-edit-form"
+                onBlur={(e) => {
+                  // If focus is moving to an element outside this form, then save.
+                  if (
+                    !e.currentTarget.contains(e.relatedTarget as Node | null)
+                  ) {
+                    handleSaveEdit();
+                  }
+                }}
+              >
                 <div>
                   <label
                     htmlFor={`session-name-${session.id}`}
@@ -409,8 +465,11 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
                     title="Rejoin"
                     className="excalidraw-button"
                     style={{ marginBottom: "0.5em", minWidth: "80px" }}
+                    disabled={rejoiningSessionId === session.id} // Disable button when rejoining this session
                   >
-                    Rejoin
+                    {rejoiningSessionId === session.id
+                      ? "Rejoining..."
+                      : "Rejoin"}
                   </button>
                   <button
                     onClick={(e) => {
@@ -434,6 +493,7 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
 
   return (
     <div
+      ref={sidebarRef} // Assign the ref here
       className="excalidraw-sidebar rc-RecentSessionsSidebar"
       style={{
         width: "320px",
