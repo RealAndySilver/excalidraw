@@ -580,6 +580,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
     this.saveSessionToHistory(currentRoomURL);
 
+    // TODO: `ImportedDataState` type here seems abused
     const scenePromise = resolvablePromise<
       | (ImportedDataState & { elements: readonly OrderedExcalidrawElement[] })
       | null
@@ -625,6 +626,10 @@ class Collab extends PureComponent<CollabProps, CollabState> {
         }
         return element;
       });
+      // remove deleted elements from elements array to ensure we don't
+      // expose potentially sensitive user data in case user manually deletes
+      // existing elements (or clears scene), which would otherwise be persisted
+      // to database even if deleted before creating the room.
       this.excalidrawAPI.updateScene({
         elements,
         captureUpdate: CaptureUpdateAction.NEVER,
@@ -633,11 +638,14 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       this.saveCollabRoomToFirebase(getSyncableElements(elements));
     }
 
+    // fallback in case you're not alone in the room but still don't receive
+    // initial SCENE_INIT message
     this.socketInitializationTimer = window.setTimeout(
       fallbackInitializationHandler,
       INITIAL_SCENE_UPDATE_TIMEOUT,
     );
 
+    // All socket listeners are moving to Portal
     this.portal.socket.on(
       "client-broadcast",
       async (encryptedData: ArrayBuffer, iv: Uint8Array) => {
@@ -678,7 +686,9 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               decryptedData.payload;
 
             const socketId: SocketUpdateDataSource["MOUSE_LOCATION"]["payload"]["socketId"] =
-              decryptedData.payload.socketId;
+              decryptedData.payload.socketId ||
+              // @ts-ignore legacy, see #2094 (#2097)
+              decryptedData.payload.socketID;
 
             this.updateCollaborator(socketId, {
               pointer,
@@ -695,6 +705,8 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
             const appState = this.excalidrawAPI.getAppState();
 
+            // we're not following the user
+            // (shouldn't happen, but could be late message or bug upstream)
             if (appState.userToFollow?.socketId !== socketId) {
               console.warn(
                 `receiving remote client's (from ${socketId}) viewport bounds even though we're not subscribed to it!`,
@@ -702,6 +714,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               return;
             }
 
+            // cross-follow case, ignore updates in this case
             if (
               appState.userToFollow &&
               appState.followedBy.has(appState.userToFollow.socketId)
@@ -802,6 +815,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           };
         }
       } catch (error: any) {
+        // log the error and move on. other peers will sync us the scene.
         console.error(error);
       } finally {
         this.portal.socketInitialized = true;
@@ -824,6 +838,10 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       appState,
     );
 
+    // Avoid broadcasting to the rest of the collaborators the scene
+    // we just received!
+    // Note: this needs to be set before updating the scene as it
+    // synchronously calls render.
     this.setLastBroadcastedOrReceivedSceneVersion(
       getSceneVersion(reconciledElements),
     );
