@@ -477,37 +477,101 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   private fallbackInitializationHandler: null | (() => any) = null;
 
   private saveSessionToHistory = (sessionUrl: string) => {
+    console.log("[Collab.tsx saveSessionToHistory] Called with sessionUrl:", sessionUrl);
     try {
       const now = Date.now();
+      const roomMatch = sessionUrl.match(/#room=([a-zA-Z0-9_-]+),?/);
+      const roomIdFromUrl = roomMatch ? roomMatch[1] : null;
+      console.log("[Collab.tsx saveSessionToHistory] Parsed roomIdFromUrl:", roomIdFromUrl);
+
       const storedSessionsRaw = localStorage.getItem(
         LOCAL_STORAGE_KEY_PAST_SESSIONS,
       );
       let pastSessions: PastSessionData[] = storedSessionsRaw
         ? JSON.parse(storedSessionsRaw)
         : [];
-      const existingSessionIndex = pastSessions.findIndex(
-        (session) => session.url === sessionUrl,
-      );
+      console.log("[Collab.tsx saveSessionToHistory] Current pastSessions from localStorage:", JSON.parse(JSON.stringify(pastSessions)));
+      
+      let existingSessionIndex = -1;
+      let foundBy: string | null = null;
+
+      if (roomIdFromUrl) {
+        console.log(`[Collab.tsx saveSessionToHistory] Attempting to find by roomId: '${roomIdFromUrl}'`);
+        pastSessions.forEach((s, idx) => console.log(`[Collab.tsx saveSessionToHistory] Checking session in LS: id='${s.id}', url='${s.url}', index=${idx}`));
+        existingSessionIndex = pastSessions.findIndex(
+          (session) => session.id === roomIdFromUrl,
+        );
+        if (existingSessionIndex !== -1) {
+          foundBy = "roomId";
+          console.log(`[Collab.tsx saveSessionToHistory] Found by roomId. Session ID from LS: '${pastSessions[existingSessionIndex].id}'`);
+        } else {
+          console.log("[Collab.tsx saveSessionToHistory] Not found by roomId.");
+        }
+      }
+      
+      if (existingSessionIndex === -1) { // If not found by roomId, try by URL
+        console.log(`[Collab.tsx saveSessionToHistory] Attempting to find by sessionUrl: '${sessionUrl}'`);
+        pastSessions.forEach((s, idx) => console.log(`[Collab.tsx saveSessionToHistory] Checking session in LS: id='${s.id}', url='${s.url}', index=${idx}`));
+        existingSessionIndex = pastSessions.findIndex(
+          (session) => session.url === sessionUrl,
+        );
+        if (existingSessionIndex !== -1) {
+          foundBy = "url";
+          console.log(`[Collab.tsx saveSessionToHistory] Found by sessionUrl. Session URL from LS: '${pastSessions[existingSessionIndex].url}'`);
+        } else {
+          console.log("[Collab.tsx saveSessionToHistory] Not found by sessionUrl.");
+        }
+      }
+      console.log(`[Collab.tsx saveSessionToHistory] Final result of find existing session. Found by: ${foundBy}, Index: ${existingSessionIndex}`);
 
       if (existingSessionIndex !== -1) {
+        const existingSession = pastSessions[existingSessionIndex];
+        console.log("[Collab.tsx saveSessionToHistory] Updating existing session:", JSON.parse(JSON.stringify(existingSession)));
         pastSessions[existingSessionIndex].createdAt = now;
-        // Description of existing entry is not modified here; user edits via modal
-      } else {
-        let sessionName = `Session - ${new Date(now).toLocaleString()}`;
-        const currentDrawingName = this.excalidrawAPI?.getName();
-        if (
-          currentDrawingName &&
-          currentDrawingName.trim() !== "" &&
-          currentDrawingName.toLowerCase() !== "untitled"
-        ) {
-          sessionName = currentDrawingName;
+        pastSessions[existingSessionIndex].url = sessionUrl; 
+
+        const currentDrawingNameFromAPI = this.excalidrawAPI?.getName();
+        console.log("[Collab.tsx saveSessionToHistory] Name from excalidrawAPI.getName() during update:", currentDrawingNameFromAPI);
+
+        const nameFromAPI = currentDrawingNameFromAPI?.trim().toLowerCase();
+        const isNameGeneric = !nameFromAPI ||
+                              nameFromAPI === "untitled" ||
+                              nameFromAPI.startsWith("session-") ||
+                              nameFromAPI.startsWith("untitled-");
+
+        if (!isNameGeneric) { 
+          pastSessions[existingSessionIndex].name = currentDrawingNameFromAPI; // Use original casing
+          console.log("[Collab.tsx saveSessionToHistory] API name ('", currentDrawingNameFromAPI, "') is specific, updating session name in localStorage.");
+        } else { 
+          console.log("[Collab.tsx saveSessionToHistory] API name ('", currentDrawingNameFromAPI, "') is generic, preserving existing name ('", existingSession.name ,"') in localStorage.");
+          // No change needed to pastSessions[existingSessionIndex].name, it already holds the correct 'existingSession.name'
         }
+
+      } else {
+        const currentDrawingNameFromAPI = this.excalidrawAPI?.getName();
+        let sessionNameToUse = currentDrawingNameFromAPI;
+        
+        const nameFromAPI = currentDrawingNameFromAPI?.trim().toLowerCase();
+        const isNameGeneric = !nameFromAPI ||
+                              nameFromAPI === "untitled" ||
+                              nameFromAPI.startsWith("session-") ||
+                              nameFromAPI.startsWith("untitled-");
+
+        if (isNameGeneric) {
+          sessionNameToUse = `Session - ${new Date(now).toLocaleString()}`;
+          console.log("[Collab.tsx saveSessionToHistory] API name ('",currentDrawingNameFromAPI,"') for new session is generic, using default:", sessionNameToUse);
+        } else {
+          console.log("[Collab.tsx saveSessionToHistory] API name ('",currentDrawingNameFromAPI,"') for new session is specific, using it.");
+        }
+
+        const idToUse = roomIdFromUrl || nanoid();
+        console.log(`[Collab.tsx saveSessionToHistory] Creating new session entry with ID: ${idToUse}, Name: ${sessionNameToUse}`);
         const newSessionEntry: PastSessionData = {
-          id: nanoid(),
-          name: sessionName,
+          id: idToUse, 
+          name: sessionNameToUse,
           url: sessionUrl,
           createdAt: now,
-          description: "", // Initialize with empty description
+          description: "",
         };
         pastSessions.push(newSessionEntry);
       }
@@ -520,8 +584,9 @@ class Collab extends PureComponent<CollabProps, CollabState> {
         LOCAL_STORAGE_KEY_PAST_SESSIONS,
         JSON.stringify(pastSessions),
       );
+      console.log("[Collab.tsx saveSessionToHistory] Successfully updated past sessions in localStorage. Final list:", pastSessions);
     } catch (error) {
-      console.error("Error saving session to history:", error);
+      console.error("[Collab.tsx saveSessionToHistory] Error saving session to history:", error);
     }
   };
 

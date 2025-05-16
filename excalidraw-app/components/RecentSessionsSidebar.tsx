@@ -15,11 +15,13 @@ interface PastSessionData {
 interface RecentSessionsSidebarProps {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   onClose: () => void; // To be called by a close button within the sidebar
+  onSessionSelect?: (session: PastSessionData) => void; // Added prop
 }
 
 export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
   excalidrawAPI,
   onClose,
+  onSessionSelect, // Destructure new prop
 }) => {
   // isOpen state is no longer controlled by an atom here, but by Excalidraw's appState.openSidebar
   const [pastSessions, setPastSessions] = useState<PastSessionData[]>([]);
@@ -60,6 +62,17 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     // (driven by Excalidraw's sidebar logic, not a local isOpen state)
     loadSessionsFromLocalStorage();
     setEditingSessionId(null);
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === LOCAL_STORAGE_KEY_PAST_SESSIONS) {
+        loadSessionsFromLocalStorage();
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
   }, [loadSessionsFromLocalStorage]); // Assuming Excalidraw re-mounts or a prop signals visibility
 
   useEffect(() => {
@@ -69,21 +82,25 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     }
   }, [editingSessionId]);
 
-  const handleRejoinSession = (sessionUrl: string) => {
-    if (!sessionUrl) {
+  const handleRejoinSession = (session: PastSessionData) => {
+    if (!session.url) {
       setError("Session URL is invalid.");
       return;
     }
-    try {
-      const url = new URL(sessionUrl);
-      window.location.hash = url.hash;
-      window.location.reload();
-    } catch (e) {
-      console.error(
-        "[RecentSessionsSidebar] Error constructing URL for rejoin:",
-        e,
-      );
-      setError("Invalid session URL format.");
+    if (onSessionSelect) {
+      onSessionSelect(session);
+    } else {
+      try {
+        const url = new URL(session.url);
+        window.location.hash = url.hash;
+        window.location.href = session.url;
+      } catch (e) {
+        console.error(
+          "[RecentSessionsSidebar] Error constructing URL for rejoin (fallback):",
+          e,
+        );
+        setError("Invalid session URL format (fallback).");
+      }
     }
   };
 
@@ -387,7 +404,7 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation(); // Prevent triggering edit mode
-                      handleRejoinSession(session.url);
+                      handleRejoinSession(session);
                     }}
                     title="Rejoin"
                     className="excalidraw-button"
