@@ -934,37 +934,8 @@ const ExcalidrawWrapper = () => {
       return;
     }
 
-    if (window.location.href === sessionToLoad.url) {
-      // Try to force a re-evaluation by changing the hash slightly
-      // This can be more effective than window.location.reload() for SPAs
-      try {
-        const url = new URL(sessionToLoad.url);
-        const timestamp = `&_force_reload=${Date.now()}`;
-        if (url.hash) {
-          // Check if dummy param already exists to prevent appending multiple times if clicked rapidly
-          if (!url.hash.includes("_force_reload=")) {
-            url.hash += timestamp;
-          } else {
-            // Update existing dummy param
-            url.hash = url.hash.replace(/&_force_reload=[^&]+/, timestamp);
-          }
-        } else {
-          // This case is less likely for collab links but handle it
-          url.hash = `#${timestamp.substring(1)}`; // Remove leading '&'
-        }
-        window.location.href = url.toString();
-      } catch (e) {
-        // Fallback to reload if URL manipulation fails for some reason
-        console.error(
-          "[App.tsx] Error manipulating URL for force reload, falling back to window.location.reload():",
-          e,
-        );
-        window.location.reload();
-      }
-    } else {
-      // This will trigger a full page load and re-initialization for different URLs
-      window.location.href = sessionToLoad.url;
-    }
+    window.location.href = sessionToLoad.url;
+    window.location.reload();
   };
 
   const isOffline = useAtomValue(isOfflineAtom);

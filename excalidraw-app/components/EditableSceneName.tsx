@@ -83,8 +83,7 @@ const EditableSceneName: React.FC<EditableSceneNameProps> = ({
           onBlur={saveEdit}
           onKeyDown={handleInputKeyDown}
           style={{
-            padding: "10px 10px",
-            fontSize: "1.875rem", // 14px, common for header elements
+            padding: "15px 10px",
             border: "1px solid #cccccc",
             borderRadius: "6px",
             width: `${inputWidth}px`,
