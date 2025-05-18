@@ -43,6 +43,7 @@ const EditableSceneName: React.FC<EditableSceneNameProps> = ({
     const trimmedText = editText.trim();
     if (trimmedText && trimmedText !== sceneName) {
       onNameChange(trimmedText);
+      setEditText(trimmedText);
     } else if (!trimmedText && sceneName) {
       // If cleared, and there was a name, revert or update to "Untitled" (handled by parent state via onNameChange)
       // For now, let's assume onNameChange will handle setting a default if needed,

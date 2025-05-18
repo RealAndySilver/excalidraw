@@ -29,7 +29,11 @@ import { withBatchedUpdates } from "@excalidraw/excalidraw/reactUtils";
 import throttle from "lodash.throttle";
 import { PureComponent } from "react";
 
-import { nanoid } from "nanoid";
+import {
+  getSessionFromAPI,
+  saveCurrentSessionIdToStorage,
+  saveSessionToAPI,
+} from "excalidraw-app/handlers/sessionHandler";
 
 import type {
   ReconciledExcalidrawElement,
@@ -126,17 +130,6 @@ export interface CollabAPI {
 
 interface CollabProps {
   excalidrawAPI: ExcalidrawImperativeAPI;
-}
-
-const LOCAL_STORAGE_KEY_PAST_SESSIONS = "excalidraw-past-sessions";
-const MAX_PAST_SESSIONS = 20;
-
-interface PastSessionData {
-  id: string;
-  name: string;
-  url: string;
-  createdAt: number;
-  description?: string;
 }
 
 class Collab extends PureComponent<CollabProps, CollabState> {
@@ -367,6 +360,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     this.queueSaveToFirebase.cancel();
     this.loadImageFiles.cancel();
     this.resetErrorIndicator(true);
+    saveCurrentSessionIdToStorage("null");
 
     this.saveCollabRoomToFirebase(
       getSyncableElements(
@@ -476,79 +470,23 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   private fallbackInitializationHandler: null | (() => any) = null;
 
-  private saveSessionToHistory = (sessionUrl: string) => {
-    try {
-      const now = Date.now();
-      const roomMatch = sessionUrl.match(/#room=([a-zA-Z0-9_-]+),?/);
-      const roomIdFromUrl = roomMatch ? roomMatch[1] : null;
-
-      const storedSessionsRaw = localStorage.getItem(
-        LOCAL_STORAGE_KEY_PAST_SESSIONS,
-      );
-      let pastSessions: PastSessionData[] = storedSessionsRaw
-        ? JSON.parse(storedSessionsRaw)
-        : [];
-      let existingSessionIndex = -1;
-
-      if (roomIdFromUrl) {
-        existingSessionIndex = pastSessions.findIndex(
-          (session) => session.id === roomIdFromUrl,
-        );
-      }
-
-      if (existingSessionIndex === -1) {
-        // If not found by roomId, try by URL
-        existingSessionIndex = pastSessions.findIndex(
-          (session) => session.url === sessionUrl,
-        );
-      }
-      if (existingSessionIndex !== -1) {
-        pastSessions[existingSessionIndex].createdAt = now;
-        pastSessions[existingSessionIndex].url = sessionUrl;
-      } else {
-        // This is a new session for the history
-        const currentDrawingNameFromAPI = this.excalidrawAPI?.getName();
-        let sessionNameToUse = currentDrawingNameFromAPI;
-
-        const nameFromAPI = currentDrawingNameFromAPI?.trim().toLowerCase();
-        const isNameGeneric =
-          !nameFromAPI ||
-          nameFromAPI === "untitled" ||
-          nameFromAPI.startsWith("session-") ||
-          nameFromAPI.startsWith("untitled-");
-
-        if (isNameGeneric) {
-          sessionNameToUse = `Session - ${new Date(now).toLocaleString()}`;
-        } else {
-          // Use original casing from API if specific
-          sessionNameToUse = currentDrawingNameFromAPI;
-        }
-
-        const idToUse = roomIdFromUrl || nanoid();
-        const newSessionEntry: PastSessionData = {
-          id: idToUse,
-          name: sessionNameToUse,
-          url: sessionUrl,
-          createdAt: now,
-          description: "",
-        };
-        pastSessions.push(newSessionEntry);
-      }
-
-      pastSessions.sort((a, b) => b.createdAt - a.createdAt);
-      if (pastSessions.length > MAX_PAST_SESSIONS) {
-        pastSessions = pastSessions.slice(0, MAX_PAST_SESSIONS);
-      }
-      localStorage.setItem(
-        LOCAL_STORAGE_KEY_PAST_SESSIONS,
-        JSON.stringify(pastSessions),
-      );
-    } catch (error) {
-      console.error(
-        "[Collab.tsx saveSessionToHistory] Error saving session to history:",
-        error,
-      );
+  private saveSessionToHistory = async ({
+    sessionUrl,
+    id,
+  }: {
+    sessionUrl: string;
+    id?: string;
+  }) => {
+    saveCurrentSessionIdToStorage(id as string);
+    const session = await getSessionFromAPI(id as string);
+    if (session) {
+      return;
     }
+    await saveSessionToAPI({
+      sessionUrl,
+      name: this.excalidrawAPI?.getName() || "",
+      id,
+    });
   };
 
   startCollaboration = async (
@@ -578,7 +516,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       window.history.pushState({}, APP_NAME, currentRoomURL);
     }
 
-    this.saveSessionToHistory(currentRoomURL);
+    this.saveSessionToHistory({ sessionUrl: currentRoomURL, id: roomId });
 
     // TODO: `ImportedDataState` type here seems abused
     const scenePromise = resolvablePromise<

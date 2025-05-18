@@ -136,6 +136,13 @@ import { RecentSessionsSidebar } from "./components/RecentSessionsSidebar";
 
 import "./index.scss";
 
+import {
+  getCurrentSessionIdFromStorage,
+  getSessionFromAPI,
+  saveCurrentSessionIdToStorage,
+  saveSessionToAPI,
+} from "./handlers/sessionHandler";
+
 import type { CollabAPI } from "./collab/Collab";
 
 polyfill();
@@ -209,9 +216,6 @@ interface PastSessionData {
   createdAt: number;
   description?: string;
 }
-
-// Local storage key for past sessions (ensure this matches RecentSessionsSidebar)
-const LOCAL_STORAGE_KEY_PAST_SESSIONS = "excalidraw-past-sessions";
 
 const initializeScene = async (opts: {
   collabAPI: CollabAPI | null;
@@ -359,10 +363,6 @@ const ExcalidrawWrapper = () => {
   const [currentSceneName, setCurrentSceneName] = useState<string | null>(
     "Untitled",
   );
-  const [activePastSessionId, setActivePastSessionId] = useState<string | null>(
-    null,
-  );
-
   // initial state
   // ---------------------------------------------------------------------------
 
@@ -494,39 +494,15 @@ const ExcalidrawWrapper = () => {
 
     initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
       loadImages(data, /* isInitialLoad */ true);
-
+      const storedId = getCurrentSessionIdFromStorage();
+      saveCurrentSessionIdToStorage(storedId as string);
       let sceneName = data.scene?.appState?.name || "Untitled";
-      let currentActivePastId: string | null = null;
-
       if (data.isExternalScene && data.id) {
-        // Collaborative session
-        currentActivePastId = data.id;
-
-        const storedSessionsRaw = localStorage.getItem(
-          LOCAL_STORAGE_KEY_PAST_SESSIONS,
-        );
-        let sessions: PastSessionData[] = storedSessionsRaw
-          ? JSON.parse(storedSessionsRaw)
-          : [];
-        const existingSessionFromHistory = sessions.find(
-          (s) => s.id === currentActivePastId,
-        );
-
-        if (
-          existingSessionFromHistory &&
-          existingSessionFromHistory.name &&
-          existingSessionFromHistory.name.trim() !== ""
-        ) {
-          sceneName = existingSessionFromHistory.name; // Priority 1: Use name from past sessions history
-        } else if (
-          data.scene?.appState?.name &&
-          data.scene.appState.name.trim() !== ""
-        ) {
-          sceneName = data.scene.appState.name; // Priority 2: Name from freshly loaded collab scene data
-        } else {
-          sceneName = "Collab Session"; // Fallback for collab session if no other name found
+        saveCurrentSessionIdToStorage(data.id);
+        const session = await getSessionFromAPI(data.id);
+        if (session) {
+          sceneName = session.name;
         }
-
         // Ensure data.scene (which will be passed to Excalidraw) has the correct name
         if (data.scene) {
           // data.scene should exist if isExternalScene & data.id were true
@@ -550,60 +526,9 @@ const ExcalidrawWrapper = () => {
             "[App.tsx ExcalidrawWrapper useEffect] data.scene was null, created new scene structure with determined name.",
           );
         }
-
-        // Ensure this collab session is in past sessions list
-        const existingSessionIndex = sessions.findIndex(
-          (s) => s.id === currentActivePastId,
-        );
-        if (existingSessionIndex === -1) {
-          const newCollabSessionEntry: PastSessionData = {
-            id: currentActivePastId,
-            name: sceneName,
-            url: window.location.href,
-            createdAt: Date.now(),
-            description: "",
-          };
-          sessions.push(newCollabSessionEntry);
-          // Sort and prune (assuming MAX_PAST_SESSIONS is available or hardcoded e.g. 20)
-          const MAX_PAST_SESSIONS = 20; // Define or import if available globally
-          if (sessions.length > MAX_PAST_SESSIONS) {
-            sessions = sessions.slice(0, MAX_PAST_SESSIONS);
-          }
-          try {
-            localStorage.setItem(
-              LOCAL_STORAGE_KEY_PAST_SESSIONS,
-              JSON.stringify(sessions),
-            );
-          } catch (error) {
-            console.error(
-              "[App.tsx ExcalidrawWrapper useEffect] Failed to save new collab session to localStorage",
-              error,
-            );
-          }
-        }
-      } else {
-        // We can still try to find if this local URL matches an *existing* session
-        // (e.g. a collab session that was later opened by its direct URL, or if future features allow saving local sessions)
-        const storedSessionsRaw = localStorage.getItem(
-          LOCAL_STORAGE_KEY_PAST_SESSIONS,
-        );
-        if (storedSessionsRaw) {
-          const sessions: PastSessionData[] = JSON.parse(storedSessionsRaw);
-          const urlMatchSession = sessions.find(
-            (s) =>
-              s.url === window.location.href ||
-              s.url === window.location.origin + window.location.pathname,
-          );
-          if (urlMatchSession) {
-            currentActivePastId = urlMatchSession.id;
-            sceneName = urlMatchSession.name; // Use name from matched session
-          }
-        }
-        // If no match, currentActivePastId remains null, sceneName remains from appState or "Untitled"
       }
 
       setCurrentSceneName(sceneName);
-      setActivePastSessionId(currentActivePastId);
       initialStatePromiseRef.current.promise.resolve(data.scene);
     });
 
@@ -627,9 +552,6 @@ const ExcalidrawWrapper = () => {
               ...restore(data.scene, null, null, { repairBindings: true }),
               captureUpdate: CaptureUpdateAction.IMMEDIATELY,
             });
-            // Update scene name from hash change loaded data
-            // setCurrentSceneName(data.scene?.appState?.name || "Untitled");
-            // setActivePastSessionId logic will handle this in the main initializeScene call
           }
         });
       }
@@ -872,58 +794,17 @@ const ExcalidrawWrapper = () => {
   };
 
   const handleUpdateSceneName = (newName: string) => {
+    const storedId = getCurrentSessionIdFromStorage();
     if (excalidrawAPI) {
-      let sessionIdToUpdate = activePastSessionId;
-      // If activePastSessionId is null, try to get it from URL if it's a collab session
-      // This can happen if initializeScene's state update hasn't propagated yet
-      if (!sessionIdToUpdate) {
-        const roomMatch = window.location.hash.match(
-          /#room=([a-zA-Z0-9_-]+),?/,
-        );
-        if (roomMatch && roomMatch[1]) {
-          sessionIdToUpdate = roomMatch[1];
-        }
-      }
-
       excalidrawAPI.updateScene({ appState: { name: newName } });
-
-      if (sessionIdToUpdate) {
-        try {
-          const storedSessionsRaw = localStorage.getItem(
-            LOCAL_STORAGE_KEY_PAST_SESSIONS,
-          );
-          if (storedSessionsRaw) {
-            const sessions = JSON.parse(storedSessionsRaw) as PastSessionData[];
-            const sessionIndex = sessions.findIndex(
-              (s) => s.id === sessionIdToUpdate,
-            );
-            if (sessionIndex !== -1) {
-              sessions[sessionIndex] = {
-                ...sessions[sessionIndex],
-                name: newName,
-              };
-              localStorage.setItem(
-                LOCAL_STORAGE_KEY_PAST_SESSIONS,
-                JSON.stringify(sessions),
-              );
-            } else {
-              console.warn(
-                `[App.tsx] Session ID "${sessionIdToUpdate}" not found in past sessions for name update.`,
-              );
-            }
-          } else {
-            console.warn(
-              "[App.tsx] No past sessions found in localStorage to update.",
-            );
-          }
-        } catch (error) {
-          console.error(
-            "[App.tsx] Error updating session name in localStorage:",
-            error,
-          );
-        }
+      if (storedId !== "null") {
+        return saveSessionToAPI({
+          id: storedId as string,
+          name: newName,
+        });
       }
     }
+    return newName;
   };
 
   const handleLoadFromSidebar = (sessionToLoad: PastSessionData) => {

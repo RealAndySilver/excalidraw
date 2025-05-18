@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 
+import {
+  getSessionsFromAPI,
+  saveSessionToAPI,
+} from "excalidraw-app/handlers/sessionHandler";
+
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 const LOCAL_STORAGE_KEY_PAST_SESSIONS = "excalidraw-past-sessions";
@@ -9,6 +14,7 @@ interface PastSessionData {
   name: string;
   url: string;
   createdAt: number;
+  updatedAt: number;
   description?: string;
 }
 
@@ -23,7 +29,6 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
   onClose,
   onSessionSelect, // Destructure new prop
 }) => {
-  // isOpen state is no longer controlled by an atom here, but by Excalidraw's appState.openSidebar
   const [pastSessions, setPastSessions] = useState<PastSessionData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -41,35 +46,37 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
   // const textareaDescriptionRef = useRef<HTMLTextAreaElement>(null); // If specific focus needed for description
   const sidebarRef = useRef<HTMLDivElement>(null); // Ref for the main sidebar div
 
-  const loadSessionsFromLocalStorage = useCallback(() => {
-    try {
-      const storedSessionsRaw = localStorage.getItem(
-        LOCAL_STORAGE_KEY_PAST_SESSIONS,
-      );
-      if (storedSessionsRaw) {
-        const sessions = JSON.parse(storedSessionsRaw) as PastSessionData[];
-        sessions.sort((a, b) => b.createdAt - a.createdAt);
-        setPastSessions(sessions);
-      } else {
-        setPastSessions([]);
-      }
-      setError(null);
-    } catch (e) {
-      console.error("Error loading past sessions from local storage:", e);
-      setError("Could not load past sessions. Storage might be corrupted.");
-      setPastSessions([]);
-    }
+  const loadSessionsFromAPI = useCallback(async () => {
+    const sessions = await getSessionsFromAPI();
+    setPastSessions(sessions as PastSessionData[]);
+    // try {
+    //   const storedSessionsRaw = localStorage.getItem(
+    //     LOCAL_STORAGE_KEY_PAST_SESSIONS,
+    //   );
+    //   if (storedSessionsRaw) {
+    //     const sessions = JSON.parse(storedSessionsRaw) as PastSessionData[];
+    //     sessions.sort((a, b) => b.createdAt - a.createdAt);
+    //     setPastSessions(sessions);
+    //   } else {
+    //     setPastSessions([]);
+    //   }
+    //   setError(null);
+    // } catch (e) {
+    //   console.error("Error loading past sessions from local storage:", e);
+    //   setError("Could not load past sessions. Storage might be corrupted.");
+    //   setPastSessions([]);
+    // }
   }, []);
 
   useEffect(() => {
     // Load sessions when the component is effectively visible
     // (driven by Excalidraw's sidebar logic, not a local isOpen state)
-    loadSessionsFromLocalStorage();
+    loadSessionsFromAPI();
     setEditingSessionId(null);
 
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === LOCAL_STORAGE_KEY_PAST_SESSIONS) {
-        loadSessionsFromLocalStorage();
+        loadSessionsFromAPI();
       }
     };
 
@@ -77,7 +84,7 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     return () => {
       window.removeEventListener("storage", handleStorageChange);
     };
-  }, [loadSessionsFromLocalStorage]); // Assuming Excalidraw re-mounts or a prop signals visibility
+  }, [loadSessionsFromAPI]); // Assuming Excalidraw re-mounts or a prop signals visibility
 
   useEffect(() => {
     if (editingSessionId && inputNameRef.current) {
@@ -87,7 +94,7 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
   }, [editingSessionId]);
 
   const handleSaveEdit = useCallback(
-    (isAutoSave = false) => {
+    async (isAutoSave = false) => {
       if (!editingSessionId) {
         return;
       }
@@ -112,20 +119,18 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
           return;
         }
 
-        const updatedSessions = pastSessions.map((session) =>
-          session.id === editingSessionId
-            ? {
-                ...session,
-                name: trimmedName,
-                description: trimmedDescription,
-              }
-            : session,
-        );
-        localStorage.setItem(
-          LOCAL_STORAGE_KEY_PAST_SESSIONS,
-          JSON.stringify(updatedSessions),
-        );
-        setPastSessions(updatedSessions);
+        await saveSessionToAPI({
+          id: sessionToUpdate.id,
+          name: trimmedName,
+          sessionUrl: sessionToUpdate.url,
+          description: trimmedDescription,
+        });
+
+        const getUpdatedSessions = await getSessionsFromAPI();
+        if (getUpdatedSessions) {
+          setPastSessions(getUpdatedSessions);
+        }
+
         if (!isAutoSave) {
           setEditingSessionId(null);
         }
@@ -216,16 +221,16 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
     }
   };
 
-  const handleDeleteAllSessions = () => {
-    try {
-      localStorage.removeItem(LOCAL_STORAGE_KEY_PAST_SESSIONS);
-      setPastSessions([]);
-      setEditingSessionId(null);
-      setError(null);
-    } catch (e) {
-      setError("Failed to delete all sessions.");
-    }
-  };
+  // const handleDeleteAllSessions = () => {
+  //   try {
+  //     localStorage.removeItem(LOCAL_STORAGE_KEY_PAST_SESSIONS);
+  //     setPastSessions([]);
+  //     setEditingSessionId(null);
+  //     setError(null);
+  //   } catch (e) {
+  //     setError("Failed to delete all sessions.");
+  //   }
+  // };
 
   const handleStartEdit = (session: PastSessionData) => {
     // If another item is already being edited, save it first
@@ -559,14 +564,14 @@ export const RecentSessionsSidebar: React.FC<RecentSessionsSidebarProps> = ({
             flexShrink: 0,
           }}
         >
-          <button
+          {/* <button
             onClick={handleDeleteAllSessions}
             className="excalidraw-button excalidraw-button--danger"
             style={{ width: "100%" }}
             disabled={pastSessions.length === 0}
           >
             Clear All History
-          </button>
+          </button> */}
         </div>
       )}
     </div>
